@@ -24,14 +24,16 @@ end
 function create_worker(body :: Function)
 
     # create an async condition variable by which the worker will be notified of work to be done
-    async = AsyncCondition()
+    async = Base.AsyncCondition()
 
     # start the worker loop
     @async begin
         try
             while true
                 # wait for a request
+                println("Starting to wait...")
                 Base.wait(async)
+                println("Doing something...")
 
                 # get the WorkerData (which we assume has been passed on the C side)
                 ptr = Base.uv_handle_data(async)

@@ -57,7 +57,7 @@ jlts_worker_t *g_worker;
 void jlts_init() {
     if (++g_ref_count > 1) return;
 
-    jl_init_with_image("C:/tw/Julia-0.6.0-pre.beta/bin", "C:/tw/Julia-0.6.0-pre.beta/lib/julia/sys.dll");
+    jl_init_with_image("C:/tw/Julia-0.6.0-pre.beta/bin", "../lib/julia/sys.dll");
     g_worker = jlts_new_worker((uv_async_t *)jl_unbox_voidpointer(jl_eval_string("include(\"C:/tw/jlts/jl/boot.jl\")")));
 }
 

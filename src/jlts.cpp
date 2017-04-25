@@ -1,7 +1,7 @@
 #include "jlts.h"
 
-#include <julia/julia.h>
-#include <julia/uv.h>
+#include <julia.h>
+#include <uv.h>
 
 struct jlts_worker_s {
     uv_async_t *async;

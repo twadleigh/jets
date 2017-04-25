@@ -1,9 +1,15 @@
 XC_HOST := x86_64-w64-mingw32
 CXX := $(XC_HOST)-g++
+CC := $(XC_HOST)-gcc
 
-JULIA_DIR = /cygdrive/c/tw/Julia-0.6.0-pre.beta
-INCLUDE_FLAGS := -I./inc -I$(JULIA_DIR)/include -I$(JULIA_DIR)/include/julia
-LINK_FLAGS := -L$(JULIA_DIR)/bin -ljulia
+CFLAGS += -I./inc
+CXXFLAGS += -I./inc
+
+JL_SHARE = $(shell julia -e 'print(joinpath(JULIA_HOME,Base.DATAROOTDIR,"julia"))')
+CFLAGS += $(shell $(JL_SHARE)/julia-config.jl --cflags)
+CXXFLAGS += $(shell $(JL_SHARE)/julia-config.jl --cflags)
+LDFLAGS += $(shell $(JL_SHARE)/julia-config.jl --ldflags)
+LDLIBS += $(shell $(JL_SHARE)/julia-config.jl --ldlibs)
 
 CPPS := $(wildcard src/*.cpp)
 OBJS := $(CPPS:%.cpp=%.o)
@@ -13,10 +19,7 @@ OBJS := $(CPPS:%.cpp=%.o)
 all : libjlts.dll jlts_test
 
 libjlts.dll : $(OBJS)
-	$(CXX) -shared $(LINK_FLAGS) -o $@ $(OBJS)
+	$(CXX) -shared $(LDFLAGS) $(LDLIBS) -o $@ $(OBJS)
 
 jlts_test : test/jlts_test.o libjlts.dll
-	$(CXX) -L. -ljlts -o $@ $<
-
-%.o : %.cpp
-	$(CXX) -shared $(INCLUDE_FLAGS) -c -o $@ $^
+	$(CXX) $(LDFLAGS) $(LDLIBS) -L. -ljlts -o $@ $<

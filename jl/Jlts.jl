@@ -27,7 +27,7 @@ function create_worker(body :: Function)
     async = Base.AsyncCondition()
 
     # start the worker loop
-    @async begin
+    @schedule begin
         try
             while true
                 # wait for a request

@@ -90,7 +90,7 @@ struct Jlts {
 
         // get the julia function callback for submitting work items
         jl_eval_string("println(pwd())");
-        uv_thread_cb jl_submit = (uv_thread_cb)jl_unbox_voidpointer(jl_eval_string("include(\"../../../jl/boot.jl\")"));
+        uv_thread_cb jl_submit = (uv_thread_cb)jl_unbox_voidpointer(jl_eval_string("include(\"C:/tw/jlts/jl/boot.jl\")"));
 
         // signal to constructor that we are now ready for execution
         ready = true;

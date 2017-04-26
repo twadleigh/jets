@@ -1,2 +1,6 @@
 **/.vs
 **/x64
+**/Debug
+*.o
+jets_test.exe
+libjets.dll

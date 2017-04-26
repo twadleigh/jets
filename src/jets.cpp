@@ -1,4 +1,4 @@
-#include "jlts.h"
+#include "jets.h"
 
 #include <julia.h>
 #include <uv.h>
@@ -38,7 +38,7 @@ Mutex g_mutex;
 Cond g_cond;
 uv_thread_t g_thread;
 
-void jlts_loop(void *expr) {
+void jets_loop(void *expr) {
     ScopeLock lock(g_mutex);
 
     // init the julia runtime
@@ -65,12 +65,12 @@ void jlts_loop(void *expr) {
     jl_atexit_hook(0);
 }
 
-void jlts_init(const char * expr) {
+void jets_init(const char * expr) {
     ScopeLock lock(g_mutex);
 
     if (g_init) return;
 
-    uv_thread_create(&g_thread, jlts_loop, (void *)expr);
+    uv_thread_create(&g_thread, jets_loop, (void *)expr);
 
     // wait for the processing thread to be ready
     while (!g_ready) g_cond.wait(g_mutex);
@@ -78,7 +78,7 @@ void jlts_init(const char * expr) {
     g_init = true;
 }
 
-void jlts_teardown() {
+void jets_teardown() {
     { // signal the thread to end
         ScopeLock lock(g_mutex);
         g_done = true;
@@ -89,7 +89,7 @@ void jlts_teardown() {
     uv_thread_join(&g_thread);
 }
 
-void jlts_call(void *io) {
+void jets_call(void *io) {
     Mutex m;
     ScopeLock l(m);
 

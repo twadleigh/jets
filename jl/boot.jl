@@ -1,3 +1,3 @@
 Base.load_juliarc()
-include("Jlts.jl")
-cfunction(Jlts.process, Void, (Ptr{Ptr{Void}},))
+include("Jets.jl")
+cfunction(Jets.process, Void, (Ptr{Ptr{Void}},))

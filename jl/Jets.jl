@@ -1,4 +1,4 @@
-module Jlts
+module Jets
 
 function process(wi :: Ptr{Ptr{Void}})
     # lock the work item mutex

@@ -10,20 +10,19 @@ CFLAGS += $(shell $(JL_SHARE)/julia-config.jl --cflags)
 CXXFLAGS += $(shell $(JL_SHARE)/julia-config.jl --cflags)
 LDFLAGS += $(shell $(JL_SHARE)/julia-config.jl --ldflags)
 LDLIBS += -ljulia-debug -lopenlibm
-# LDLIBS += $(shell $(JL_SHARE)/julia-config.jl --ldlibs)
 
 CPPS := $(wildcard src/*.cpp)
 OBJS := $(CPPS:%.cpp=%.o)
 
 .PHONY : all clean
 
-all : libjlts.dll jlts_test
+all : libjets.dll jets_test
 
-libjlts.dll : $(OBJS)
+libjets.dll : $(OBJS)
 	$(CXX) -shared $(LDFLAGS) $(LDLIBS) -o $@ $(OBJS)
 
-jlts_test : test/jlts_test.o libjlts.dll
-	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^ 
+jets_test : test/jets_test.o libjets.dll
+	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
 
 clean:
-	-rm $(OBJS) libjlts.dll jlts_test
+	-rm $(OBJS) test/jets_test.o libjets.dll jets_test

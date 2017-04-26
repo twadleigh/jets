@@ -1,3 +1,5 @@
+#define JETS_EXPORTS
+
 #include "jets.h"
 
 #include <julia.h>

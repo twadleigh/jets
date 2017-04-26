@@ -30,92 +30,84 @@ struct WorkItem {
     void *done;
 };
 
-void jlts_loop(void *);
+bool g_init = false;
+bool g_ready = false;
+bool g_done = false;
+WorkItem *g_work_item = NULL;
+Mutex g_mutex;
+Cond g_cond;
+uv_thread_t g_thread;
 
-struct Jlts {
-    bool ready;
-    bool done;
-    WorkItem *work_item;
-    Mutex mutex;
-    Cond cond;
-    uv_thread_t thread;
+void jlts_loop(void *expr) {
+    ScopeLock lock(g_mutex);
 
-    Jlts() : ready(false), done(false), work_item(NULL) {
-        ScopeLock lock(mutex);
-        uv_thread_create(&thread, jlts_loop, NULL);
+    // init the julia runtime
+    jl_init();
 
-        // wait for the processing thread to be ready
-        while (!ready) cond.wait(mutex);
-    }
+    // get the julia function callback for submitting work items
+    uv_thread_cb jl_submit = (uv_thread_cb)jl_unbox_voidpointer(jl_eval_string((const char *)expr));
 
-    ~Jlts() {
-        { // signal the thread to end
-            ScopeLock lock(mutex);
-            done = true;
-            cond.signal();
-        }
+    // signal to the initializer that we are now ready for execution
+    g_ready = true;
+    g_cond.signal();
 
-        // wait for the thread to complete
-        uv_thread_join(&thread);
-    }
-
-    void call(void *io) {
-        Mutex m;
-        ScopeLock m_lock(m);
-
-        Cond c;
-        WorkItem wi;
-        wi.mutex = &m;
-        wi.cond = &c._cond;
-        wi.io = io;
-        wi.done = NULL;
-
-        { // submit the work item
-            ScopeLock mutex_lock(mutex);
-            work_item = &wi;
-            cond.signal();
-        }
-
-        // wait for the work to be completed
-        while(wi.done == NULL) {
-            c.wait(m);
+    // loop, waiting for work items to be submitted
+    for(;;) {
+        g_cond.wait(g_mutex);
+        if (g_done) break;
+        if (g_work_item) {
+            jl_submit(g_work_item);
+            g_work_item = NULL;
         }
     }
 
-    void loop() {
-        ScopeLock lock(mutex);
+    // finalize
+    jl_atexit_hook(0);
+}
 
-        // init the julia runtime
-        jl_init();
+void jlts_init(const char * expr) {
+    ScopeLock lock(g_mutex);
 
-        // get the julia function callback for submitting work items
-        jl_eval_string("println(pwd())");
-        uv_thread_cb jl_submit = (uv_thread_cb)jl_unbox_voidpointer(jl_eval_string("include(\"C:/tw/jlts/jl/boot.jl\")"));
+    if (g_init) return;
 
-        // signal to constructor that we are now ready for execution
-        ready = true;
-        cond.signal();
+    uv_thread_create(&g_thread, jlts_loop, (void *)expr);
 
-        // loop, waiting for work items to be submitted
-        for(;;) {
-            cond.wait(mutex);
-            if (done) break;
-            if (work_item) {
-                jl_submit(work_item);
-                work_item = NULL;
-            }
-        }
+    // wait for the processing thread to be ready
+    while (!g_ready) g_cond.wait(g_mutex);
 
-        // finalize
-        jl_atexit_hook(0);
+    g_init = true;
+}
+
+void jlts_teardown() {
+    { // signal the thread to end
+        ScopeLock lock(g_mutex);
+        g_done = true;
+        g_cond.signal();
     }
 
-} g_jlts;
-
-void jlts_loop(void *) {
-    g_jlts.loop();
+    // wait for the thread to complete
+    uv_thread_join(&g_thread);
 }
 
 void jlts_call(void *io) {
-    g_jlts.call(io);
+    Mutex m;
+    ScopeLock l(m);
+
+    Cond c;
+    WorkItem wi;
+    wi.mutex = &m;
+    wi.cond = &c._cond;
+    wi.io = io;
+    wi.done = NULL;
+
+    { // submit the work item
+        ScopeLock lock(g_mutex);
+        g_work_item = &wi;
+        g_cond.signal();
+    }
+
+    // wait for the work to be completed
+    while(wi.done == NULL) {
+        c.wait(m);
+    }
 }

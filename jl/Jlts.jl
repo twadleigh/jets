@@ -1,7 +1,6 @@
 module Jlts
 
 function process(wi :: Ptr{Ptr{Void}})
-
     # lock the work item mutex
     mtx = unsafe_load(wi, 1)
     ccall(:uv_mutex_lock, Void, (Ptr{Void},), mtx)

@@ -15,7 +15,7 @@ LDLIBS += -ljulia-debug -lopenlibm
 CPPS := $(wildcard src/*.cpp)
 OBJS := $(CPPS:%.cpp=%.o)
 
-.PHONY : all
+.PHONY : all clean
 
 all : libjlts.dll jlts_test
 
@@ -23,4 +23,7 @@ libjlts.dll : $(OBJS)
 	$(CXX) -shared $(LDFLAGS) $(LDLIBS) -o $@ $(OBJS)
 
 jlts_test : test/jlts_test.o libjlts.dll
-	$(CXX) $(LDFLAGS) $(LDLIBS) -L. -ljlts -o $@ $<
+	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^ 
+
+clean:
+	-rm $(OBJS) libjlts.dll jlts_test

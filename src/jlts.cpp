@@ -3,75 +3,119 @@
 #include <julia.h>
 #include <uv.h>
 
-struct jlts_worker_s {
-    uv_async_t *async;
-    uv_mutex_t mutex;
+struct Mutex : public uv_mutex_t {
+    Mutex() { uv_mutex_init(this); }
+    ~Mutex() { uv_mutex_destroy(this); }
 };
 
-typedef struct {
-    void *io;
+struct Cond {
+    uv_cond_t _cond;
+    Cond() { uv_cond_init(&_cond); }
+    ~Cond() { uv_cond_destroy(&_cond); }
+
+    void signal() { uv_cond_signal(&_cond); }
+    void wait(Mutex &m) { uv_cond_wait(&_cond, &m); }
+};
+
+struct ScopeLock {
+    Mutex &_mutex;
+    ScopeLock(Mutex &m) : _mutex(m) { uv_mutex_lock(&_mutex); }
+    ~ScopeLock() { uv_mutex_unlock(&_mutex); }
+};
+
+struct WorkItem {
+    uv_mutex_t *mutex;
     uv_cond_t *cond;
+    void *io;
     void *done;
-} jlts_worker_data_t;
+};
 
-jlts_worker_t *jlts_new_worker(uv_async_t *async) {
-    jlts_worker_t *wkr = (jlts_worker_t *)malloc(sizeof(jlts_worker_t));
-    uv_mutex_init(&wkr->mutex);
-    wkr->async = async;
-    return wkr;
-}
+void jlts_loop(void *);
 
-void jlts_finalize_worker(jlts_worker_t *wkr) {
-    wkr->async = NULL;
-    uv_mutex_destroy(&wkr->mutex);
-    free(wkr);
-}
+struct Jlts {
+    bool ready;
+    bool done;
+    WorkItem *work_item;
+    Mutex mutex;
+    Cond cond;
+    uv_thread_t thread;
 
-void jlts_call_worker(jlts_worker_t *wkr, void *io) {
+    Jlts() : ready(false), done(false), work_item(NULL) {
+        ScopeLock lock(mutex);
+        uv_thread_create(&thread, jlts_loop, NULL);
 
-    // create and initialize the condition variable on which execution will wait
-    uv_cond_t cond;
-    uv_cond_init(&cond);
-
-    // set up the worker data struct
-    jlts_worker_data_t data;
-    data.io = io;
-    data.cond = &cond;
-    data.done = NULL;
-
-    uv_mutex_lock(&wkr->mutex); // lock the worker for exclusive use
-    wkr->async->data = &data; // set the worker data
-    uv_async_send(wkr->async); // ask the worker to do work
-    while(data.done == NULL) {
-        uv_cond_wait(&cond, &wkr->mutex);
+        // wait for the processing thread to be ready
+        while (!ready) cond.wait(mutex);
     }
-    uv_mutex_unlock(&wkr->mutex); // free the worker
 
-    // destroy the condition variable
-    uv_cond_destroy(&cond);
-}
+    ~Jlts() {
+        { // signal the thread to end
+            ScopeLock lock(mutex);
+            done = true;
+            cond.signal();
+        }
 
-int g_ref_count = 0;
-jlts_worker_t *g_worker;
-
-void jlts_init() {
-    if (++g_ref_count > 1) return;
-
-    jl_init_with_image("C:/tw/Julia-0.6.0-pre.beta/bin", "../lib/julia/sys.dll");
-    g_worker = jlts_new_worker((uv_async_t *)jl_unbox_voidpointer(jl_eval_string("include(\"C:/tw/jlts/jl/boot.jl\")")));
-}
-
-void jlts_finalize() {
-    if (g_ref_count <= 0) {
-        g_ref_count = 0;
-        return;
+        // wait for the thread to complete
+        uv_thread_join(&thread);
     }
-    if (--g_ref_count > 0) return;
 
-    jl_atexit_hook(0);
-    jlts_finalize_worker(g_worker);
+    void call(void *io) {
+        Mutex m;
+        ScopeLock m_lock(m);
+
+        Cond c;
+        WorkItem wi;
+        wi.mutex = &m;
+        wi.cond = &c._cond;
+        wi.io = io;
+        wi.done = NULL;
+
+        { // submit the work item
+            ScopeLock mutex_lock(mutex);
+            work_item = &wi;
+            cond.signal();
+        }
+
+        // wait for the work to be completed
+        while(wi.done == NULL) {
+            c.wait(m);
+        }
+    }
+
+    void loop() {
+        ScopeLock lock(mutex);
+
+        // init the julia runtime
+        jl_init();
+
+        // get the julia function callback for submitting work items
+        jl_eval_string("println(pwd())");
+        uv_thread_cb jl_submit = (uv_thread_cb)jl_unbox_voidpointer(jl_eval_string("include(\"../../../jl/boot.jl\")"));
+
+        // signal to constructor that we are now ready for execution
+        ready = true;
+        cond.signal();
+
+        // loop, waiting for work items to be submitted
+        for(;;) {
+            cond.wait(mutex);
+            if (done) break;
+            if (work_item) {
+                jl_submit(work_item);
+                work_item = NULL;
+            }
+        }
+
+        // finalize
+        jl_atexit_hook(0);
+    }
+
+} g_jlts;
+
+void jlts_loop(void *) {
+    g_jlts.loop();
 }
 
 void jlts_call(void *io) {
-    jlts_call_worker(g_worker, io);
+    g_jlts.call(io);
 }

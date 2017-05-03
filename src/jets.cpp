@@ -25,11 +25,30 @@ struct ScopeLock {
     ~ScopeLock() { uv_mutex_unlock(&_mutex); }
 };
 
+struct Thunk {
+    virtual void operator()() = 0;
+};
+
 struct WorkItem {
-    uv_mutex_t *mutex;
-    uv_cond_t *cond;
-    void *io;
-    void *done;
+    bool done;
+    Mutex mutex;
+    Cond cond;
+    Thunk &thunk;
+
+    WorkItem(Thunk &t) : done(false), thunk(t) {}
+
+    void process() {
+        ScopeLock lock(mutex);
+        thunk();
+        done = true;
+        cond.signal();
+    }
+
+    void wait() {
+        while (!done) {
+            cond.wait(mutex);
+        }
+    }
 };
 
 bool g_init = false;
@@ -40,14 +59,11 @@ Mutex g_mutex;
 Cond g_cond;
 uv_thread_t g_thread;
 
-void jets_loop(void *expr) {
+void jets_loop(void *) {
     ScopeLock lock(g_mutex);
 
     // init the julia runtime
     jl_init();
-
-    // get the julia function callback for submitting work items
-    uv_thread_cb jl_submit = (uv_thread_cb)jl_unbox_voidpointer(jl_eval_string((const char *)expr));
 
     // signal to the initializer that we are now ready for execution
     g_ready = true;
@@ -58,7 +74,7 @@ void jets_loop(void *expr) {
         g_cond.wait(g_mutex);
         if (g_done) break;
         if (g_work_item) {
-            jl_submit(g_work_item);
+            g_work_item->process();
             g_work_item = NULL;
         }
     }
@@ -67,12 +83,12 @@ void jets_loop(void *expr) {
     jl_atexit_hook(0);
 }
 
-void jets_init(const char * expr) {
+void jets_init() {
     ScopeLock lock(g_mutex);
 
     if (g_init) return;
 
-    uv_thread_create(&g_thread, jets_loop, (void *)expr);
+    uv_thread_create(&g_thread, jets_loop, NULL);
 
     // wait for the processing thread to be ready
     while (!g_ready) g_cond.wait(g_mutex);
@@ -91,16 +107,10 @@ void jets_teardown() {
     uv_thread_join(&g_thread);
 }
 
-void jets_call(void *io) {
-    Mutex m;
-    ScopeLock l(m);
-
-    Cond c;
-    WorkItem wi;
-    wi.mutex = &m;
-    wi.cond = &c._cond;
-    wi.io = io;
-    wi.done = NULL;
+// means by which other threads have work executed on the julia thread
+void jets_invoke(Thunk &thunk) {
+    WorkItem wi(thunk);
+    ScopeLock l(wi.mutex);
 
     { // submit the work item
         ScopeLock lock(g_mutex);
@@ -109,7 +119,22 @@ void jets_call(void *io) {
     }
 
     // wait for the work to be completed
-    while(wi.done == NULL) {
-        c.wait(m);
+    wi.wait();
+}
+
+struct EvalStringThunk : public Thunk {
+    const char *expr;
+    jl_value_t *val;
+
+    EvalStringThunk(const char *e) : expr(e), val(NULL) {}
+
+    void operator()() {
+        val = jl_eval_string(expr);
     }
+};
+
+jl_value_t *jets_eval_string(const char *expr) {
+    EvalStringThunk est(expr);
+    jets_invoke(est);
+    return est.val;
 }

@@ -25,21 +25,18 @@ struct ScopeLock {
     ~ScopeLock() { uv_mutex_unlock(&_mutex); }
 };
 
-struct Thunk {
-    virtual void operator()() = 0;
-};
-
 struct WorkItem {
     bool done;
     Mutex mutex;
     Cond cond;
-    Thunk &thunk;
+    cb_t cb;
+    void *arg;
 
-    WorkItem(Thunk &t) : done(false), thunk(t) {}
+    WorkItem(cb_t _cb, void *_arg) : done(false), cb(_cb), arg(_arg) {}
 
     void process() {
         ScopeLock lock(mutex);
-        thunk();
+        cb(arg);
         done = true;
         cond.signal();
     }
@@ -108,8 +105,8 @@ void jets_teardown() {
 }
 
 // means by which other threads have work executed on the julia thread
-void jets_invoke(Thunk &thunk) {
-    WorkItem wi(thunk);
+void jets_eval(cb_t cb, void *arg) {
+    WorkItem wi(cb, arg);
     ScopeLock l(wi.mutex);
 
     { // submit the work item
@@ -120,21 +117,4 @@ void jets_invoke(Thunk &thunk) {
 
     // wait for the work to be completed
     wi.wait();
-}
-
-struct EvalStringThunk : public Thunk {
-    const char *expr;
-    jl_value_t *val;
-
-    EvalStringThunk(const char *e) : expr(e), val(NULL) {}
-
-    void operator()() {
-        val = jl_eval_string(expr);
-    }
-};
-
-jl_value_t *jets_eval_string(const char *expr) {
-    EvalStringThunk est(expr);
-    jets_invoke(est);
-    return est.val;
 }

@@ -1,13 +1,13 @@
 #ifndef __JETS_H__
 #define __JETS_H__
 
-#include <julia.h>
-
 #ifdef JETS_EXPORTS
 #define JETS_DLLEXPORT __declspec(dllexport)
 #else
 #define JETS_DLLEXPORT __declspec(dllimport)
 #endif
+
+typedef void(*cb_t)(void *);
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,12 +16,12 @@ extern "C" {
 /* Creates the thread on which the julia runtime will be initialized and through which
    calls to the runtime will be routed.
 
-   Must be called (on any thread) before any thread makes a call to `jets_invoke`.
+   Must be called (on any thread) before any thread makes a call to `jets_eval`.
 
    It is idempotent. That is, it is safe to call multiple times, though, after the first
    call, subsequent calls have no effect. For example, while it is probably best that it
    is called on the main application thread before other threads are created, it would
-   also be safe for each thread that wishes to invoke `jets_invoke` invokes this first.
+   also be safe for each thread that wishes to invoke `jets_eval` invokes this first.
 */
 JETS_DLLEXPORT void jets_init();
 
@@ -30,11 +30,17 @@ JETS_DLLEXPORT void jets_init();
    This is final. A subsequent call to `jets_init` will not bring the runtime back up.
 
    Care should be taken to invoke this only after all threads have ceased to invoke
-   `jets_invoke`, as subsequent calls will block indefinitely.
+   `jets_eval`, as subsequent calls will block indefinitely.
 */
 JETS_DLLEXPORT void jets_teardown();
 
-JETS_DLLEXPORT jl_value_t *jets_eval_string(const char * expr);
+/* Evaluates the function on the julia thread, invoking it with the given argument, and
+   blocking the calling thread until execution on the julia thread is complete.
+
+   Invocations of `jets_eval` are serialized on the julia thread, so that each call can
+   be considered to be effectively atomic with respect to interaction with the julia runtime.
+*/
+JETS_DLLEXPORT void jets_eval(cb_t cb, void *arg);
 
 #ifdef __cplusplus
 }

@@ -2,5 +2,7 @@
 **/x64
 **/Debug
 *.o
+*.VC.db
+*.vcxproj.user
 jets_test.exe
 libjets.dll

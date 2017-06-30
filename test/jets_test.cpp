@@ -13,6 +13,6 @@ void my_cb(void *arg) {
 
 int main() {
     double val = 0.0;
-    jets_eval(my_cb, &val);
+    jets_exec(my_cb, &val);
     std::cout << val << std::endl;
 }

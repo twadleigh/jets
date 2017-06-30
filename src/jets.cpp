@@ -32,8 +32,10 @@ struct WorkItem {
     cb_t cb;
     void *arg;
 
+    // called on the client thread
     WorkItem(cb_t _cb, void *_arg) : done(false), cb(_cb), arg(_arg) {}
 
+    // called on the julia runtime thread
     void process() {
         ScopeLock lock(mutex);
         cb(arg);
@@ -41,6 +43,7 @@ struct WorkItem {
         cond.signal();
     }
 
+    // called on the client thread
     void wait() {
         while (!done) {
             cond.wait(mutex);
@@ -105,9 +108,11 @@ void jets_teardown() {
 }
 
 // means by which other threads have work executed on the julia thread
-void jets_eval(cb_t cb, void *arg) {
+void jets_exec(cb_t cb, void *arg) {
     WorkItem wi(cb, arg);
     ScopeLock l(wi.mutex);
+
+    assert(g_init && g_ready && !g_done);
 
     { // submit the work item
         ScopeLock lock(g_mutex);

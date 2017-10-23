@@ -38,14 +38,17 @@ struct WorkItem {
     // called on the julia runtime thread
     void process() {
         ScopeLock lock(mutex);
-        cb(arg);
+        try {
+            cb(arg);
+        } catch(...) {} // swallow any exceptions
         done = true;
         cond.signal();
     }
 
     // called on the client thread
     void wait() {
-        while (!done) {
+        ScopeLock lock(mutex);
+        while (!done) { // protect against spurious wake-up
             cond.wait(mutex);
         }
     }
@@ -62,7 +65,8 @@ uv_thread_t g_thread;
 void jets_loop(void *) {
     ScopeLock lock(g_mutex);
 
-    // init the julia runtime
+    // init the support library and julia runtime
+    libsupport_init();
     jl_init();
 
     // signal to the initializer that we are now ready for execution
@@ -73,7 +77,7 @@ void jets_loop(void *) {
     for(;;) {
         g_cond.wait(g_mutex);
         if (g_done) break;
-        if (g_work_item) {
+        if (g_work_item) { // protect against spurious wake-up
             g_work_item->process();
             g_work_item = NULL;
         }
@@ -88,7 +92,7 @@ void jets_init() {
 
     if (g_init) return;
 
-    uv_thread_create(&g_thread, jets_loop, NULL);
+    assert(0 <= uv_thread_create(&g_thread, jets_loop, NULL));
 
     // wait for the processing thread to be ready
     while (!g_ready) g_cond.wait(g_mutex);
@@ -108,16 +112,18 @@ void jets_teardown() {
 }
 
 // means by which other threads have work executed on the julia thread
-void jets_exec(cb_t cb, void *arg) {
+void jets_eval(cb_t cb, void *arg) {
     WorkItem wi(cb, arg);
-    ScopeLock l(wi.mutex);
 
-    assert(g_init && g_ready && !g_done);
-
-    { // submit the work item
+    // submit the work item
+    for(;;) {
         ScopeLock lock(g_mutex);
-        g_work_item = &wi;
-        g_cond.signal();
+        assert(g_init && g_ready && !g_done);
+        if (g_work_item == NULL) { // protect against spurious lock acquistion
+            g_work_item = &wi;
+            g_cond.signal();
+            break;
+        }
     }
 
     // wait for the work to be completed

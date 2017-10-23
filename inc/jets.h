@@ -22,8 +22,10 @@ extern "C" {
    call, subsequent calls have no effect. For example, while it is probably best that it
    is called on the main application thread before other threads are created, it would
    also be safe for each thread that wishes to invoke `jets_exec` invokes this first.
+
+   Returns zero if the thread was created successfully, and a value less than zero if not.
 */
-JETS_DLLEXPORT void jets_init();
+JETS_DLLEXPORT int jets_init();
 
 /* Signals the julia runtime thread to shutdown and waits for it to die.
 

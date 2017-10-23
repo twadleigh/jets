@@ -87,17 +87,23 @@ void jets_loop(void *) {
     jl_atexit_hook(0);
 }
 
-void jets_init() {
+int jets_init() {
     ScopeLock lock(g_mutex);
 
-    if (g_init) return;
+    if (g_init) return 0;
 
-    assert(0 <= uv_thread_create(&g_thread, jets_loop, NULL));
+	int result = uv_thread_create(&g_thread, jets_loop, NULL);
+	if (0 > result) {
+		jl_printf(jl_stderr_stream(), "Thread creation failed with %u.\n", result);
+		return result;
+	}
 
     // wait for the processing thread to be ready
     while (!g_ready) g_cond.wait(g_mutex);
 
     g_init = true;
+
+	return result;
 }
 
 void jets_teardown() {
@@ -112,7 +118,7 @@ void jets_teardown() {
 }
 
 // means by which other threads have work executed on the julia thread
-void jets_eval(cb_t cb, void *arg) {
+void jets_exec(cb_t cb, void *arg) {
     WorkItem wi(cb, arg);
 
     // submit the work item
